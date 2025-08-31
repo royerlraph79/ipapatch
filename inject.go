@@ -126,6 +126,7 @@ func addDylibCommand(m *macho.File, name, bundleID string) error {
 			TeamID:          cd.TeamID,
 			Entitlements:    []byte(cs.Entitlements),
 			EntitlementsDER: cs.EntitlementsDER,
+			SpecialSlots:    []cstypes.SpecialSlot{{Hash: cstypes.EmptySha256Slot}}, // YES this is actually needed
 		})
 	}
 	return nil

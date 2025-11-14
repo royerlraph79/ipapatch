@@ -21,14 +21,14 @@ func Patch(args Args) error {
 
 	//
 
-	logger.Info("extracting and injecting..")
+	logger.Info("extracting and injecting...")
 	paths, err := injectAll(args, tmpdir)
 	if err != nil {
 		return fmt.Errorf("error injecting: %w", err)
 	}
 
 	if args.Output != args.Input {
-		logger.Info("copying input to output..")
+		logger.Info("copying input to output...")
 		if err = copyfile(args.Input, args.Output); err != nil {
 			return fmt.Errorf("failed to copy input to output: %w", err)
 		}
@@ -54,7 +54,7 @@ func Patch(args Args) error {
 
 	//
 
-	logger.Info("adding files back to ipa..")
+	logger.Info("adding files back to ipa...")
 
 	o, err := os.OpenFile(args.Output, os.O_RDWR, 0)
 	if err != nil {

@@ -7,29 +7,29 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const helpText = `usage: ipapatch [-h/--help] --input <path> [--output <path] [--dylib <path>] [--inplace] [--noconfirm] [--plugins-only] [--no-zip] [--version]
+const helpText = `usage: ipapatch [-h/--help] -i/--input <path> [--output <path>] [--dylib <path>] [--inplace/-f] [--noconfirm/-y] [--plugins-only/-p] [--zip/-z] [--version]
 
 flags:
-  --input path      the path to the ipa file to patch
-  --output path     the path to the patched ipa file to create
-  --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject
-  --inplace         takes priority over --output, use this to overwrite the input file
-  --noconfirm       skip interactive confirmation when not using --inplace, overwriting a file that already exists, etc
-  --plugins-only    only inject into plugin binaries (not the main executable)
-  --zip             use the zip cli tool to remove files (shouldnt be needed anymore)
+  -i, --input path      the path to the ipa file to patch (required)
+  -o, --output path     the path to the patched ipa file to create
+  -d, --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject
+  -f, --inplace         takes priority over --output, use this to overwrite the input file
+  -y, --noconfirm       skip interactive confirmation when not using --inplace, overwriting a file that already exists, etc.
+  -p, --plugins-only    only inject into plugin binaries (not the main executable)
+  -z, --zip             use the zip cli tool to remove files (shouldn't be needed anymore)
 
 info:
-  -h, --help        show usage and exit
-  --version         show version and exit`
+  -h, --help            show usage and exit
+  --version             show version and exit`
 
 type Args struct {
-	Input       string `arg:"--input,required"`
-	Output      string `arg:"--output"`
-	Dylib       string `arg:"--dylib"`
-	InPlace     bool   `arg:"--inplace"`
-	NoConfirm   bool   `arg:"--noconfirm"`
-	PluginsOnly bool   `arg:"--plugins-only"`
-	UseZip      bool   `arg:"--zip"`
+	Input       string `arg:"-i,--input,required"`
+	Output      string `arg:"-o,--output"`
+	Dylib       string `arg:"-d,--dylib"`
+	InPlace     bool   `arg:"-f,--inplace"`
+	NoConfirm   bool   `arg:"-y,--noconfirm"`
+	PluginsOnly bool   `arg:"-p,--plugins-only"`
+	UseZip      bool   `arg:"-z,--zip"`
 }
 
 func (Args) Version() string {

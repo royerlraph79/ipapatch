@@ -7,12 +7,12 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const helpText = `usage: ipapatch [-h/--help] -i/--input <path> [--output <path>] [--dylib <path>] [--inplace/-f] [--noconfirm/-y] [--plugins-only/-p] [--zip/-z] [--version]
+const helpText = `usage: ipapatch [-h/--help] [-i/--input <path>] [-o/--output <path>] [-d/--dylib <path>] [-f/--inplace] [-y/--noconfirm/] [-p/--plugins-only] [-z/--zip] [--version]
 
 flags:
   -i, --input path      the path to the ipa file to patch (required)
   -o, --output path     the path to the patched ipa file to create
-  -d, --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject
+  -d, --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject.dylib
   -f, --inplace         takes priority over --output, use this to overwrite the input file
   -y, --noconfirm       skip interactive confirmation when not using --inplace, overwriting a file that already exists, etc.
   -p, --plugins-only    only inject into plugin binaries (not the main executable)

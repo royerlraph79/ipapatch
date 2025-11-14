@@ -40,7 +40,7 @@ func AskInteractively(question string) bool {
 	var reply string
 	logger.Infof("%s [Y/n]", question)
 	if _, err := fmt.Scanln(&reply); err != nil && err.Error() != "unexpected newline" {
-		logger.Logw(zapcore.ErrorLevel, "couldnt scan reply", "err", err)
+		logger.Logw(zapcore.ErrorLevel, "couldn't scan reply", "err", err)
 		return false
 	}
 	reply = strings.TrimSpace(reply)

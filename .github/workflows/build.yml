@@ -1,0 +1,121 @@
+name: Build ipapatch
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_linux:
+        type: boolean
+        description: "Build for Linux"
+        default: true
+      build_macos_cross:
+        type: boolean
+        description: "Build macOS (cross-compiled on Linux)"
+        default: true
+      build_macos_native:
+        type: boolean
+        description: "Build macOS (native macOS runner)"
+        default: true
+      build_windows:
+        type: boolean
+        description: "Build for Windows"
+        default: false
+
+jobs:
+
+  linux-matrix:
+    if: ${{ github.event.inputs.build_linux == 'true' || github.event.inputs.build_macos_cross == 'true' }}
+    name: Build (Linux cross-compile)
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        include:
+          # Linux builds
+          - goos: linux
+            goarch: amd64
+            enabled: ${{ github.event.inputs.build_linux == 'true' }}
+          - goos: linux
+            goarch: arm64
+            enabled: ${{ github.event.inputs.build_linux == 'true' }}
+
+          # macOS cross-compiled builds
+          - goos: darwin
+            goarch: amd64
+            enabled: ${{ github.event.inputs.build_macos_cross == 'true' }}
+          - goos: darwin
+            goarch: arm64
+            enabled: ${{ github.event.inputs.build_macos_cross == 'true' }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
+        if: ${{ matrix.enabled }}
+        run: |
+          mkdir -p dist
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -v -o dist/ipapatch-${{ matrix.goos }}-${{ matrix.goarch }} .
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ matrix.enabled }}
+        with:
+          name: ipapatch-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/ipapatch-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  macos-native:
+    if: ${{ github.event.inputs.build_macos_native == 'true' }}
+    name: Build (macOS native)
+    runs-on: macos-latest
+
+    env:
+      CGO_ENABLED: 0
+      GOOS: darwin
+      GOARCH: arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build macOS native binary
+        run: |
+          mkdir -p dist
+          go build -v -o dist/ipapatch-darwin-arm64-native .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipapatch-darwin-arm64-native
+          path: dist/ipapatch-darwin-arm64-native
+
+  windows:
+    if: ${{ github.event.inputs.build_windows == 'true' }}
+    name: Build (Windows)
+    runs-on: windows-latest
+
+    env:
+      CGO_ENABLED: 0
+      GOOS: windows
+      GOARCH: amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build Windows binary
+        run: |
+          mkdir dist
+          go build -v -o dist/ipapatch-windows-amd64.exe .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipapatch-windows-amd64
+          path: dist/ipapatch-windows-amd64.exe

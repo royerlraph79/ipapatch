@@ -58,9 +58,9 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 			return nil, fmt.Errorf("error extracting %s: %w", pl.Executable, err)
 		}
 
-		logger.Infof("injecting into %s ..", pl.Executable)
+		logger.Infof("injecting into %s...", pl.Executable)
 		if err = injectLC(fsPath, pl.BundleID, lcName, tmpdir); err != nil {
-			return nil, fmt.Errorf("couldnt inject into %s: %w", pl.Executable, err)
+			return nil, fmt.Errorf("couldn't inject into %s: %w", pl.Executable, err)
 		}
 
 		paths[fsPath] = path

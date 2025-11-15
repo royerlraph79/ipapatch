@@ -39,11 +39,24 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 	}
 	paths := make(map[string]string, len(plists))
 
-	lcName := "@rpath/"
-	if args.Dylib == "" {
-		lcName += "zxPluginsInject.dylib"
+	// Build list of LC_LOAD_* names to inject
+	var lcNames []string
+	if len(args.Dylib) == 0 {
+		// No custom dylib provided: use embedded zxPluginsInject
+		lcNames = []string{"@rpath/zxPluginsInject.dylib"}
 	} else {
-		lcName += filepath.Base(args.Dylib)
+		seen := make(map[string]struct{})
+		for _, dylibPath := range args.Dylib {
+			if dylibPath == "" {
+				continue
+			}
+			name := "@rpath/" + filepath.Base(dylibPath)
+			if _, ok := seen[name]; ok {
+				continue // avoid duplicate LC_LOAD entries
+			}
+			seen[name] = struct{}{}
+			lcNames = append(lcNames, name)
+		}
 	}
 
 	for _, p := range plists {
@@ -52,18 +65,22 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 			return nil, err
 		}
 
-		path := path.Join(path.Dir(p), pl.Executable)
-		fsPath, err := extractToPath(z, tmpdir, path)
+		pathInIpa := path.Join(path.Dir(p), pl.Executable)
+		fsPath, err := extractToPath(z, tmpdir, pathInIpa)
 		if err != nil {
 			return nil, fmt.Errorf("error extracting %s: %w", pl.Executable, err)
 		}
 
 		logger.Infof("injecting into %s...", pl.Executable)
-		if err = injectLC(fsPath, pl.BundleID, lcName, tmpdir); err != nil {
-			return nil, fmt.Errorf("couldn't inject into %s: %w", pl.Executable, err)
+
+		// Inject all desired LC_LOAD_* entries into this binary
+		for _, lcName := range lcNames {
+			if err = injectLC(fsPath, pl.BundleID, lcName, tmpdir); err != nil {
+				return nil, fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, pl.Executable, err)
+			}
 		}
 
-		paths[fsPath] = path
+		paths[fsPath] = pathInIpa
 	}
 
 	return paths, nil

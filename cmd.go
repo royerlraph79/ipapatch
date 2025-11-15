@@ -12,9 +12,9 @@ const helpText = `usage: ipapatch [-h/--help] [-i/--input <path>] [-o/--output <
 flags:
   -i, --input path      the path to the ipa file to patch (required)
   -o, --output path     the path to the patched ipa file to create
-  -d, --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject.dylib
+  -d, --dylib path      the path to the dylib to use instead of the embedded zxPluginsInject
   -f, --inplace         takes priority over --output, use this to overwrite the input file
-  -y, --noconfirm       skip interactive confirmation when not using --inplace, overwriting a file that already exists, etc.
+  -y, --noconfirm       skip interactive confirmation when not using --inplace
   -p, --plugins-only    only inject into plugin binaries (not the main executable)
   -z, --zip             use the zip cli tool to remove files (shouldn't be needed anymore)
 

@@ -74,10 +74,24 @@ func Patch(args Args) error {
 		}
 	}
 
-	if args.Dylib != "" {
-		return appendFileToUpdater(ud, args.Dylib, fmt.Sprintf("Payload/%s/Frameworks/%s", appName, filepath.Base(args.Dylib)))
+	// If custom dylibs were provided, add ALL of them into Frameworks/
+	if len(args.Dylib) > 0 {
+		for _, dylibPath := range args.Dylib {
+			if dylibPath == "" {
+				continue
+			}
+			if err := appendFileToUpdater(
+				ud,
+				dylibPath,
+				fmt.Sprintf("Payload/%s/Frameworks/%s", appName, filepath.Base(dylibPath)),
+			); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
+	// Fallback: embed the built-in zxPluginsInject.dylib
 	zxpi, err := zxPluginsInject.Open("resources/zxPluginsInject.dylib")
 	if err != nil {
 		return err

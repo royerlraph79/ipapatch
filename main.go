@@ -59,10 +59,21 @@ func main() {
 		}
 	}
 
-	if args.Dylib != "" {
-		_, err := os.Stat(args.Dylib)
-		if os.IsNotExist(err) {
-			logger.Fatalw("path provided to --dylib doesnt exist", "path", args.Dylib)
+	// Multiple --dylib support: validate each path
+	if len(args.Dylib) > 0 {
+		for _, path := range args.Dylib {
+			if path == "" {
+				continue
+			}
+			info, err := os.Stat(path)
+			if os.IsNotExist(err) {
+				logger.Fatalw("path provided to --dylib doesnt exist", "path", path)
+			} else if err != nil {
+				logger.Fatalw("error checking --dylib path", "path", path, "err", err)
+			}
+			if info.IsDir() {
+				logger.Fatalw("path provided to --dylib is a directory, expected file", "path", path)
+			}
 		}
 	}
 

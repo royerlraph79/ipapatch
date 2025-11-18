@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/alexflint/go-arg"
 	"go.uber.org/zap/zapcore"
@@ -32,6 +33,39 @@ func main() {
 		logger.Fatalf("%v (see --help for usage)", err)
 	}
 
+	// Validate input exists
+	if _, err := os.Stat(args.Input); err != nil {
+		if os.IsNotExist(err) {
+			logger.Fatalf("input path does not exist: %s", args.Input)
+		}
+		logger.Fatalf("failed to stat input: %v", err)
+	}
+
+	// Validate all dylib paths (if any)
+	for _, d := range args.Dylib {
+		if d == "" {
+			continue
+		}
+		if _, err := os.Stat(d); err != nil {
+			if os.IsNotExist(err) {
+				logger.Fatalw("path provided to -d/--dylib doesn't exist", "path", d)
+			}
+			logger.Fatalw("failed to stat dylib", "path", d, "err", err)
+		}
+	}
+
+	ext := strings.ToLower(filepath.Ext(args.Input))
+	switch ext {
+	case ".ipa", ".tipa":
+		runForIPA(args)
+	case ".app":
+		runForAppBundle(args)
+	default:
+		logger.Fatalf("unsupported input type %q (expected .ipa, .tipa, or .app)", ext)
+	}
+}
+
+func runForIPA(args Args) {
 	if args.UseZip {
 		if _, err := exec.LookPath("zip"); err != nil {
 			logger.Fatal("zip command not found in PATH, you need to install it or omit --zip (see help)")
@@ -62,46 +96,22 @@ func main() {
 		}
 	}
 
-	// Validate all provided dylib paths (if any)
-	if len(args.Dylib) > 0 {
-		for _, path := range args.Dylib {
-			if path == "" {
-				continue
-			}
-			info, err := os.Stat(path)
-			if os.IsNotExist(err) {
-				logger.Fatalw("path provided to --dylib doesnt exist", "path", path)
-			} else if err != nil {
-				logger.Fatalw("error checking --dylib path", "path", path, "err", err)
-			}
-			if info.IsDir() {
-				logger.Fatalw("path provided to --dylib is a directory, expected file", "path", path)
-			}
-		}
-	}
-
-	// Special handling for .app bundles: patch in-place instead of treating as IPA
-	if filepath.Ext(args.Input) == ".app" {
-		// For .app bundles, output other than input makes no sense without doing a copy ourselves.
-		if args.Output != "" && args.Output != args.Input {
-			logger.Fatal("--output is not supported for .app bundles; use --inplace or omit --output")
-		}
-
-		if !args.InPlace && !args.NoConfirm {
-			if !AskInteractively("patch this .app bundle in-place?") {
-				return
-			}
-		}
-
-		if err := PatchAppBundle(args); err != nil {
-			logger.Log(zapcore.ErrorLevel, err)
-			os.Exit(1)
-		}
-		return
-	}
-
-	// Default path: treat input as IPA/zip
 	if err := Patch(args); err != nil {
+		logger.Log(zapcore.ErrorLevel, err)
+		os.Exit(1)
+	}
+}
+
+func runForAppBundle(args Args) {
+	if args.UseZip {
+		logger.Info("--zip has no effect for .app inputs (ignored)")
+	}
+
+	if !args.InPlace && args.Output != "" {
+		logger.Info("--output is ignored for .app inputs; patching in place")
+	}
+
+	if err := PatchAppBundle(args); err != nil {
 		logger.Log(zapcore.ErrorLevel, err)
 		os.Exit(1)
 	}

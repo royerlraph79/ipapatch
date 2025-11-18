@@ -24,6 +24,7 @@ var (
 	ErrNoPlugins = errors.New("no plugins found")
 )
 
+// injectAll patches the main executable and all plugins in an IPA/TIPA.
 // key - path to file in provided tmpdir, now patched
 // val - path inside ipa
 func injectAll(args Args, tmpdir string) (map[string]string, error) {
@@ -39,10 +40,9 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 	}
 	paths := make(map[string]string, len(plists))
 
-	// Build list of LC_LOAD_* names to inject (IPA path)
+	// Build list of LC names to inject
 	var lcNames []string
 	if len(args.Dylib) == 0 {
-		// No custom dylib provided: use embedded zxPluginsInject
 		lcNames = []string{"@rpath/zxPluginsInject.dylib"}
 	} else {
 		seen := make(map[string]struct{})
@@ -52,7 +52,7 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 			}
 			name := "@rpath/" + filepath.Base(dylibPath)
 			if _, ok := seen[name]; ok {
-				continue // avoid duplicate LC_LOAD entries
+				continue
 			}
 			seen[name] = struct{}{}
 			lcNames = append(lcNames, name)
@@ -65,22 +65,26 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 			return nil, err
 		}
 
-		pathInIpa := path.Join(path.Dir(p), pl.Executable)
-		fsPath, err := extractToPath(z, tmpdir, pathInIpa)
+		execPath := path.Join(path.Dir(p), pl.Executable)
+		fsPath, err := extractToPath(z, tmpdir, execPath)
 		if err != nil {
 			return nil, fmt.Errorf("error extracting %s: %w", pl.Executable, err)
 		}
 
 		logger.Infof("injecting into %s...", pl.Executable)
 
-		// Inject all desired LC_LOAD_* entries into this binary
 		for _, lcName := range lcNames {
 			if err = injectLC(fsPath, pl.BundleID, lcName, tmpdir); err != nil {
+				// Make re-running on the same target idempotent-ish
+				if strings.Contains(err.Error(), "already exists (already patched)") {
+					logger.Infof("skipping %s for %s (already patched)", lcName, pl.Executable)
+					continue
+				}
 				return nil, fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, pl.Executable, err)
 			}
 		}
 
-		paths[fsPath] = pathInIpa
+		paths[fsPath] = execPath
 	}
 
 	return paths, nil
@@ -181,41 +185,27 @@ func appendToUpdater(ud *zip.Updater, zippedPath string, fi fs.FileInfo, r io.Re
 	return err
 }
 
-// PatchAppBundle patches an iOS .app bundle on disk (e.g. Payload/Instagram.app),
+// PatchAppBundle patches an iOS .app bundle on disk (e.g. Payload/YouTube.app),
 // mirroring IPA behavior: if no -d is supplied, it injects the embedded
 // zxPluginsInject.dylib; otherwise it uses the provided dylib(s).
+// It injects into the main app binary and all .appex plugins, unless
+// --plugins-only is set, in which case it injects only into plugins.
 func PatchAppBundle(args Args) error {
 	appPath := args.Input
 
-	// iOS-style: MyApp.app/Info.plist
-	infoPath := filepath.Join(appPath, "Info.plist")
-	if _, err := os.Stat(infoPath); err != nil {
+	mainInfoPath := filepath.Join(appPath, "Info.plist")
+	mainHasPlist := true
+	if _, err := os.Stat(mainInfoPath); err != nil {
 		if os.IsNotExist(err) {
-			return fmt.Errorf("could not find Info.plist in %s", appPath)
+			mainHasPlist = false
+		} else {
+			return fmt.Errorf("failed to stat Info.plist: %w", err)
 		}
-		return fmt.Errorf("failed to stat Info.plist: %w", err)
 	}
 
-	contents, err := os.ReadFile(infoPath)
-	if err != nil {
-		return fmt.Errorf("failed to read Info.plist: %w", err)
-	}
-
-	var pl PlistInfo
-	if _, err := plist.Unmarshal(contents, &pl); err != nil {
-		return fmt.Errorf("failed to parse Info.plist: %w", err)
-	}
-
-	// iOS on disk / Payload-style: MyApp.app/<CFBundleExecutable>
-	binPath := filepath.Join(appPath, pl.Executable)
-	if _, err := os.Stat(binPath); err != nil {
-		return fmt.Errorf("executable not found at %s: %w", binPath, err)
-	}
-
-	// Build list of LC_LOAD_* names to inject (same behavior as IPA)
+	// Build list of LC_LOAD_* names to inject
 	var lcNames []string
 	if len(args.Dylib) == 0 {
-		// No custom dylib: use embedded zxPluginsInject
 		lcNames = []string{"@rpath/zxPluginsInject.dylib"}
 	} else {
 		seen := make(map[string]struct{})
@@ -232,6 +222,82 @@ func PatchAppBundle(args Args) error {
 		}
 	}
 
+	type target struct {
+		execPath    string
+		bundleID    string
+		displayName string
+	}
+
+	var targets []target
+
+	// Main app target, if allowed
+	if mainHasPlist && !args.PluginsOnly {
+		contents, err := os.ReadFile(mainInfoPath)
+		if err != nil {
+			return fmt.Errorf("failed to read Info.plist: %w", err)
+		}
+
+		var pl PlistInfo
+		if _, err := plist.Unmarshal(contents, &pl); err != nil {
+			return fmt.Errorf("failed to parse Info.plist: %w", err)
+		}
+
+		binPath := filepath.Join(appPath, pl.Executable)
+		if _, err := os.Stat(binPath); err != nil {
+			return fmt.Errorf("executable not found at %s: %w", binPath, err)
+		}
+
+		targets = append(targets, target{
+			execPath:    binPath,
+			bundleID:    pl.BundleID,
+			displayName: pl.Executable, // matches IPA logging: "injecting into YouTube..."
+		})
+	}
+
+	// Walk for .appex plugins and add them as targets
+	err := filepath.WalkDir(appPath, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(p, ".appex/Info.plist") {
+			return nil
+		}
+
+		contents, err := os.ReadFile(p)
+		if err != nil {
+			return fmt.Errorf("failed to read plugin Info.plist at %s: %w", p, err)
+		}
+
+		var pl PlistInfo
+		if _, err := plist.Unmarshal(contents, &pl); err != nil {
+			return fmt.Errorf("failed to parse plugin Info.plist at %s: %w", p, err)
+		}
+
+		bundleDir := filepath.Dir(p)
+		binPath := filepath.Join(bundleDir, pl.Executable)
+		if _, err := os.Stat(binPath); err != nil {
+			return fmt.Errorf("plugin executable not found at %s: %w", binPath, err)
+		}
+
+		targets = append(targets, target{
+			execPath:    binPath,
+			bundleID:    pl.BundleID,
+			displayName: pl.Executable, // keep logs consistent with IPA: just the executable name
+		})
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	if len(targets) == 0 {
+		return fmt.Errorf("no targets found in %s (no main app or plugins matched)", appPath)
+	}
+
 	// Temporary dir for fat-file rewrites
 	tmpdir, err := os.MkdirTemp("", ".ipapatch-app-*")
 	if err != nil {
@@ -239,14 +305,22 @@ func PatchAppBundle(args Args) error {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	logger.Infof("injecting into %s...", binPath)
-	for _, lcName := range lcNames {
-		if err := injectLC(binPath, pl.BundleID, lcName, tmpdir); err != nil {
-			return fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, binPath, err)
+	// Inject into all targets
+	for _, t := range targets {
+		logger.Infof("injecting into %s...", t.displayName)
+		for _, lcName := range lcNames {
+			if err := injectLC(t.execPath, t.BundleID, lcName, tmpdir); err != nil {
+				// Idempotent-ish: already patched → just skip that LC
+				if strings.Contains(err.Error(), "already exists (already patched)") {
+					logger.Infof("skipping %s for %s (already patched)", lcName, t.displayName)
+					continue
+				}
+				return fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, t.displayName, err)
+			}
 		}
 	}
 
-	// Copy dylibs into the bundle's Frameworks folder (iOS layout)
+	// Copy dylib(s) into the bundle's Frameworks folder (iOS layout)
 	frameworksDir := filepath.Join(appPath, "Frameworks")
 	if err := os.MkdirAll(frameworksDir, 0755); err != nil {
 		return fmt.Errorf("failed to create Frameworks dir: %w", err)

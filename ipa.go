@@ -39,7 +39,7 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 	}
 	paths := make(map[string]string, len(plists))
 
-	// Build list of LC_LOAD_* names to inject
+	// Build list of LC_LOAD_* names to inject (IPA path)
 	var lcNames []string
 	if len(args.Dylib) == 0 {
 		// No custom dylib provided: use embedded zxPluginsInject
@@ -179,4 +179,111 @@ func appendToUpdater(ud *zip.Updater, zippedPath string, fi fs.FileInfo, r io.Re
 
 	_, err = io.Copy(w, r)
 	return err
+}
+
+// PatchAppBundle patches an iOS .app bundle on disk (e.g. Payload/Instagram.app),
+// mirroring IPA behavior: if no -d is supplied, it injects the embedded
+// zxPluginsInject.dylib; otherwise it uses the provided dylib(s).
+func PatchAppBundle(args Args) error {
+	appPath := args.Input
+
+	// iOS-style: MyApp.app/Info.plist
+	infoPath := filepath.Join(appPath, "Info.plist")
+	if _, err := os.Stat(infoPath); err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("could not find Info.plist in %s", appPath)
+		}
+		return fmt.Errorf("failed to stat Info.plist: %w", err)
+	}
+
+	contents, err := os.ReadFile(infoPath)
+	if err != nil {
+		return fmt.Errorf("failed to read Info.plist: %w", err)
+	}
+
+	var pl PlistInfo
+	if _, err := plist.Unmarshal(contents, &pl); err != nil {
+		return fmt.Errorf("failed to parse Info.plist: %w", err)
+	}
+
+	// iOS on disk / Payload-style: MyApp.app/<CFBundleExecutable>
+	binPath := filepath.Join(appPath, pl.Executable)
+	if _, err := os.Stat(binPath); err != nil {
+		return fmt.Errorf("executable not found at %s: %w", binPath, err)
+	}
+
+	// Build list of LC_LOAD_* names to inject (same behavior as IPA)
+	var lcNames []string
+	if len(args.Dylib) == 0 {
+		// No custom dylib: use embedded zxPluginsInject
+		lcNames = []string{"@rpath/zxPluginsInject.dylib"}
+	} else {
+		seen := make(map[string]struct{})
+		for _, dylibPath := range args.Dylib {
+			if dylibPath == "" {
+				continue
+			}
+			name := "@rpath/" + filepath.Base(dylibPath)
+			if _, ok := seen[name]; ok {
+				continue
+			}
+			seen[name] = struct{}{}
+			lcNames = append(lcNames, name)
+		}
+	}
+
+	// Temporary dir for fat-file rewrites
+	tmpdir, err := os.MkdirTemp("", ".ipapatch-app-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpdir)
+
+	logger.Infof("injecting into %s...", binPath)
+	for _, lcName := range lcNames {
+		if err := injectLC(binPath, pl.BundleID, lcName, tmpdir); err != nil {
+			return fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, binPath, err)
+		}
+	}
+
+	// Copy dylibs into the bundle's Frameworks folder (iOS layout)
+	frameworksDir := filepath.Join(appPath, "Frameworks")
+	if err := os.MkdirAll(frameworksDir, 0755); err != nil {
+		return fmt.Errorf("failed to create Frameworks dir: %w", err)
+	}
+
+	if len(args.Dylib) == 0 {
+		// No custom dylib: copy embedded zxPluginsInject into Frameworks
+		zxpi, err := zxPluginsInject.Open("resources/zxPluginsInject.dylib")
+		if err != nil {
+			return fmt.Errorf("failed to open embedded zxPluginsInject.dylib: %w", err)
+		}
+		defer zxpi.Close()
+
+		dst := filepath.Join(frameworksDir, "zxPluginsInject.dylib")
+		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0755)
+		if err != nil {
+			return fmt.Errorf("failed to create %s: %w", dst, err)
+		}
+		if _, err := io.Copy(out, zxpi); err != nil {
+			out.Close()
+			return fmt.Errorf("failed to write %s: %w", dst, err)
+		}
+		if err := out.Close(); err != nil {
+			return fmt.Errorf("failed to close %s: %w", dst, err)
+		}
+	} else {
+		// Custom dylibs: copy all of them into Frameworks
+		for _, dylibPath := range args.Dylib {
+			if dylibPath == "" {
+				continue
+			}
+			dst := filepath.Join(frameworksDir, filepath.Base(dylibPath))
+			if err := copyfile(dylibPath, dst); err != nil {
+				return fmt.Errorf("failed to copy %s -> %s: %w", dylibPath, dst, err)
+			}
+		}
+	}
+
+	return nil
 }

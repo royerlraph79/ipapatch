@@ -11,7 +11,7 @@ import (
 	"github.com/STARRY-S/zip"
 )
 
-// Patch patches the executable and all plugins.
+// Patch patches the executable and all plugins in an IPA/TIPA.
 func Patch(args Args) error {
 	tmpdir, err := os.MkdirTemp(".", ".ipapatch-*")
 	if err != nil {
@@ -74,24 +74,21 @@ func Patch(args Args) error {
 		}
 	}
 
-	// If custom dylibs were provided, add ALL of them into Frameworks/
+	// Add dylib(s) back into the IPA's Frameworks folder
 	if len(args.Dylib) > 0 {
 		for _, dylibPath := range args.Dylib {
 			if dylibPath == "" {
 				continue
 			}
-			if err := appendFileToUpdater(
-				ud,
-				dylibPath,
-				fmt.Sprintf("Payload/%s/Frameworks/%s", appName, filepath.Base(dylibPath)),
-			); err != nil {
+			zippedPath := fmt.Sprintf("Payload/%s/Frameworks/%s", appName, filepath.Base(dylibPath))
+			if err := appendFileToUpdater(ud, dylibPath, zippedPath); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
 
-	// Fallback: embed the built-in zxPluginsInject.dylib
+	// No custom dylib: use embedded zxPluginsInject.dylib
 	zxpi, err := zxPluginsInject.Open("resources/zxPluginsInject.dylib")
 	if err != nil {
 		return err

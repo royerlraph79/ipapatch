@@ -7,17 +7,18 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-const helpText = `usage: ipapatch [-h/--help] [-i/--input <path>] [-o/--output <path>] [-d/--dylib <path>] [-f/--inplace] [-y/--noconfirm] [-p/--plugins-only] [-z/--zip] [--version]
+const helpText = `usage: ipapatch [-h/--help] [-i/--input <path>] [-o/--output <path>] [-d/--dylib <path> ...] [-f/--inplace] [-y/--noconfirm] [-p/--plugins-only] [-z/--zip] [--version]
 
 flags:
-  -i, --input path      the path to the ipa file to patch (required)
-  -o, --output path     the path to the patched ipa file to create
-  -d, --dylib path      the path(s) to dylib(s) to use instead of the embedded zxPluginsInject
-                        repeat multiple times: -d tweak1.dylib -d tweak2.dylib
+  -i, --input path      the path to the ipa or .app bundle to patch (required)
+  -o, --output path     the path to the patched ipa file to create (ipa/tipa only)
+  -d, --dylib path      path to a dylib to use instead of the embedded zxPluginsInject
+                        can be repeated to inject multiple dylibs:
+                          -d tweak1.dylib -d tweak2.dylib ...
   -f, --inplace         takes priority over --output, use this to overwrite the input file
   -y, --noconfirm       skip interactive confirmation when not using --inplace
   -p, --plugins-only    only inject into plugin binaries (not the main executable)
-  -z, --zip             use the zip cli tool to remove files (shouldn't be needed anymore)
+  -z, --zip             use the zip cli tool to remove files (ipa/tipa only; shouldn't be needed anymore)
 
 info:
   -h, --help            show usage and exit

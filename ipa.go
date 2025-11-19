@@ -71,15 +71,17 @@ func injectAll(args Args, tmpdir string) (map[string]string, error) {
 			return nil, fmt.Errorf("error extracting %s: %w", pl.Executable, err)
 		}
 
+		// Logging identical style: only the executable name
 		logger.Infof("injecting into %s...", pl.Executable)
 
 		for _, lcName := range lcNames {
 			if err = injectLC(fsPath, pl.BundleID, lcName, tmpdir); err != nil {
-				// Make re-running on the same target idempotent-ish
+				// Option C: idempotent — if already patched, just log and continue
 				if strings.Contains(err.Error(), "already exists (already patched)") {
-					logger.Infof("skipping %s for %s (already patched)", lcName, pl.Executable)
+					logger.Infof("%s already patched (skipping '%s')", pl.Executable, lcName)
 					continue
 				}
+				// Any other error is still fatal
 				return nil, fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, pl.Executable, err)
 			}
 		}
@@ -190,6 +192,7 @@ func appendToUpdater(ud *zip.Updater, zippedPath string, fi fs.FileInfo, r io.Re
 // zxPluginsInject.dylib; otherwise it uses the provided dylib(s).
 // It injects into the main app binary and all .appex plugins, unless
 // --plugins-only is set, in which case it injects only into plugins.
+// Behavior is idempotent: if a load command already exists, it logs and skips.
 func PatchAppBundle(args Args) error {
 	appPath := args.Input
 
@@ -203,7 +206,7 @@ func PatchAppBundle(args Args) error {
 		}
 	}
 
-	// Build list of LC_LOAD_* names to inject
+	// Build list of LC_LOAD_* names to inject (same as IPA)
 	var lcNames []string
 	if len(args.Dylib) == 0 {
 		lcNames = []string{"@rpath/zxPluginsInject.dylib"}
@@ -230,7 +233,7 @@ func PatchAppBundle(args Args) error {
 
 	var targets []target
 
-	// Main app target, if allowed
+	// Main app target, if allowed (no --plugins-only)
 	if mainHasPlist && !args.PluginsOnly {
 		contents, err := os.ReadFile(mainInfoPath)
 		if err != nil {
@@ -250,7 +253,7 @@ func PatchAppBundle(args Args) error {
 		targets = append(targets, target{
 			execPath:    binPath,
 			bundleID:    pl.BundleID,
-			displayName: pl.Executable, // matches IPA logging: "injecting into YouTube..."
+			displayName: pl.Executable, // "YouTube"
 		})
 	}
 
@@ -285,7 +288,7 @@ func PatchAppBundle(args Args) error {
 		targets = append(targets, target{
 			execPath:    binPath,
 			bundleID:    pl.BundleID,
-			displayName: pl.Executable, // keep logs consistent with IPA: just the executable name
+			displayName: pl.Executable, // e.g. NotificationContentExtension
 		})
 
 		return nil
@@ -305,14 +308,13 @@ func PatchAppBundle(args Args) error {
 	}
 	defer os.RemoveAll(tmpdir)
 
-	// Inject into all targets
+	// Inject into all targets (idempotent)
 	for _, t := range targets {
 		logger.Infof("injecting into %s...", t.displayName)
 		for _, lcName := range lcNames {
-			if err := injectLC(t.execPath, t.BundleID:, lcName, tmpdir); err != nil {
-				// Idempotent-ish: already patched → just skip that LC
+			if err := injectLC(t.execPath, t.bundleID, lcName, tmpdir); err != nil {
 				if strings.Contains(err.Error(), "already exists (already patched)") {
-					logger.Infof("skipping %s for %s (already patched)", lcName, t.displayName)
+					logger.Infof("%s already patched (skipping '%s')", t.displayName, lcName)
 					continue
 				}
 				return fmt.Errorf("couldn't inject '%s' into %s: %w", lcName, t.displayName, err)

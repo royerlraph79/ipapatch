@@ -309,7 +309,7 @@ func PatchAppBundle(args Args) error {
 	for _, t := range targets {
 		logger.Infof("injecting into %s...", t.displayName)
 		for _, lcName := range lcNames {
-			if err := injectLC(t.execPath, t.BundleID, lcName, tmpdir); err != nil {
+			if err := injectLC(t.execPath, t.BundleID:, lcName, tmpdir); err != nil {
 				// Idempotent-ish: already patched → just skip that LC
 				if strings.Contains(err.Error(), "already exists (already patched)") {
 					logger.Infof("skipping %s for %s (already patched)", lcName, t.displayName)

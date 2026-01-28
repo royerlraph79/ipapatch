@@ -1,50 +1,50 @@
 package main
 
 import (
-	"fmt"
-	"strings"
-
-	"go.uber.org/zap/zapcore"
+	"flag"
+	"os"
 )
 
-const helpText = `usage: ipapatch [-h/--help] [-i/--input <path>] [-o/--output <path>] [-d/--dylib <path> ...] [-f/--inplace] [-y/--noconfirm] [-p/--plugins-only] [-z/--zip] [--version]
+const helpText = `
+Usage:
+  ipapatch -i <input.ipa> [options]
 
-flags:
-  -i, --input path      the path to the ipa or .app bundle to patch (required)
-  -o, --output path     the path to the patched ipa file to create (ipa/tipa only)
-  -d, --dylib path      path to a dylib to use instead of the embedded zxPluginsInject
-                        can be repeated to inject multiple dylibs:
-                          -d tweak1.dylib -d tweak2.dylib ...
-  -f, --inplace         takes priority over --output, use this to overwrite the input file
-  -y, --noconfirm       skip interactive confirmation when not using --inplace
-  -p, --plugins-only    only inject into plugin binaries (not the main executable)
-  -z, --zip             use the zip cli tool to remove files (ipa/tipa only; shouldn't be needed anymore)
+Options:
+  -i, --input <file>     input IPA file (required)
+  -o, --output <file>    write output to file (default: overwrite input)
+  -f, --inplace          overwrite input file (implicit if --output is not set)
+  -y, --yes              assume yes to all prompts
+  --zip                  use external zip command
+  -h, --help             show this help message
+`
 
-info:
-  -h, --help            show usage and exit
-  --version             show version and exit`
+func parseArgs() Args {
+	var args Args
 
-type Args struct {
-	Input       string   `arg:"-i,--input,required"`
-	Output      string   `arg:"-o,--output"`
-	Dylib       []string `arg:"-d,--dylib,separate"`
-	InPlace     bool     `arg:"-f,--inplace"`
-	NoConfirm   bool     `arg:"-y,--noconfirm"`
-	PluginsOnly bool     `arg:"-p,--plugins-only"`
-	UseZip      bool     `arg:"-z,--zip"`
-}
+	flag.StringVar(&args.Input, "i", "", "")
+	flag.StringVar(&args.Input, "input", "", "")
 
-func (Args) Version() string {
-	return "ipapatch v2.1.3"
-}
+	flag.StringVar(&args.Output, "o", "", "")
+	flag.StringVar(&args.Output, "output", "", "")
 
-func AskInteractively(question string) bool {
-	var reply string
-	logger.Infof("%s [Y/n]", question)
-	if _, err := fmt.Scanln(&reply); err != nil && err.Error() != "unexpected newline" {
-		logger.Logw(zapcore.ErrorLevel, "couldn't scan reply", "err", err)
-		return false
+	flag.BoolVar(&args.InPlace, "f", false, "")
+	flag.BoolVar(&args.InPlace, "inplace", false, "")
+
+	flag.BoolVar(&args.NoConfirm, "y", false, "")
+	flag.BoolVar(&args.NoConfirm, "yes", false, "")
+
+	flag.BoolVar(&args.UseZip, "zip", false, "")
+
+	flag.Usage = func() {
+		os.Stderr.WriteString(helpText)
 	}
-	reply = strings.TrimSpace(reply)
-	return reply == "" || reply == "y" || reply == "Y"
+
+	flag.Parse()
+
+	if args.Input == "" {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	return args
 }

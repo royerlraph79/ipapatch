@@ -4,71 +4,103 @@ on:
   workflow_dispatch:
     inputs:
       build_linux:
+        description: Build for Linux
         type: boolean
-        description: "Build for Linux"
         default: true
       build_macos_cross:
+        description: Build macOS (cross-compiled on Linux)
         type: boolean
-        description: "Build macOS (cross-compiled on Linux)"
         default: true
       build_macos_native:
+        description: Build macOS (native macOS runner)
         type: boolean
-        description: "Build macOS (native macOS runner)"
         default: true
       build_windows:
+        description: Build for Windows
         type: boolean
-        description: "Build for Windows"
         default: false
 
-jobs:
+permissions:
+  contents: read
 
-  linux-matrix:
-    if: ${{ github.event.inputs.build_linux == 'true' || github.event.inputs.build_macos_cross == 'true' }}
-    name: Build (Linux cross-compile)
+jobs:
+  linux:
+    name: Build Linux (${{ matrix.goarch }})
+    if: ${{ inputs.build_linux }}
     runs-on: ubuntu-latest
 
     strategy:
+      fail-fast: false
       matrix:
-        include:
-          # Linux builds
-          - goos: linux
-            goarch: amd64
-            enabled: ${{ github.event.inputs.build_linux == 'true' }}
-          - goos: linux
-            goarch: arm64
-            enabled: ${{ github.event.inputs.build_linux == 'true' }}
-
-          # macOS cross-compiled builds
-          - goos: darwin
-            goarch: amd64
-            enabled: ${{ github.event.inputs.build_macos_cross == 'true' }}
-          - goos: darwin
-            goarch: arm64
-            enabled: ${{ github.event.inputs.build_macos_cross == 'true' }}
+        goarch: [amd64, arm64]
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - name: Setup Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
 
-      - name: Build ${{ matrix.goos }}-${{ matrix.goarch }}
-        if: ${{ matrix.enabled }}
+      - name: Build Linux binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: ${{ matrix.goarch }}
         run: |
           mkdir -p dist
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
-            go build -v -o dist/ipapatch-${{ matrix.goos }}-${{ matrix.goarch }} .
+          go build -trimpath -ldflags="-s -w" -o "dist/ipapatch-linux-${GOARCH}" .
 
-      - uses: actions/upload-artifact@v4
-        if: ${{ matrix.enabled }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
         with:
-          name: ipapatch-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/ipapatch-${{ matrix.goos }}-${{ matrix.goarch }}
+          name: ipapatch-linux-${{ matrix.goarch }}
+          path: dist/ipapatch-linux-${{ matrix.goarch }}
+          if-no-files-found: error
+          compression-level: 0
+
+  macos-cross:
+    name: Build macOS cross (${{ matrix.goarch }})
+    if: ${{ inputs.build_macos_cross }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        goarch: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build macOS cross binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          go build -trimpath -ldflags="-s -w" -o "dist/ipapatch-darwin-${GOARCH}" .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ipapatch-darwin-${{ matrix.goarch }}
+          path: dist/ipapatch-darwin-${{ matrix.goarch }}
+          if-no-files-found: error
+          compression-level: 0
 
   macos-native:
-    if: ${{ github.event.inputs.build_macos_native == 'true' }}
-    name: Build (macOS native)
+    name: Build macOS native (arm64)
+    if: ${{ inputs.build_macos_native }}
     runs-on: macos-latest
 
     env:
@@ -77,25 +109,31 @@ jobs:
       GOARCH: arm64
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - name: Setup Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Build macOS native binary
         run: |
           mkdir -p dist
-          go build -v -o dist/ipapatch-darwin-arm64-native .
+          go build -trimpath -ldflags="-s -w" -o dist/ipapatch-darwin-arm64-native .
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
         with:
           name: ipapatch-darwin-arm64-native
           path: dist/ipapatch-darwin-arm64-native
+          if-no-files-found: error
+          compression-level: 0
 
   windows:
-    if: ${{ github.event.inputs.build_windows == 'true' }}
-    name: Build (Windows)
+    name: Build Windows (amd64)
+    if: ${{ inputs.build_windows }}
     runs-on: windows-latest
 
     env:
@@ -104,18 +142,25 @@ jobs:
       GOARCH: amd64
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-go@v5
+      - name: Setup Go
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: true
 
       - name: Build Windows binary
+        shell: pwsh
         run: |
-          mkdir dist
-          go build -v -o dist/ipapatch-windows-amd64.exe .
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          go build -trimpath -ldflags="-s -w" -o dist/ipapatch-windows-amd64.exe .
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
         with:
           name: ipapatch-windows-amd64
           path: dist/ipapatch-windows-amd64.exe
+          if-no-files-found: error
+          compression-level: 0
